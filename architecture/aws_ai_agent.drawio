@@ -1,0 +1,100 @@
+<mxfile host="app.diagrams.net">
+  <diagram name="AWS AI Agent Architecture">
+    <mxGraphModel dx="1200" dy="800" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1600" pageHeight="1000" math="0" shadow="0">
+      <root>
+        <mxCell id="0"/>
+        <mxCell id="1" parent="0"/>
+
+        <mxCell id="user" value="User&#xa;タスク投入" style="rounded=1;whiteSpace=wrap;html=1;" vertex="1" parent="1">
+          <mxGeometry x="60" y="180" width="140" height="70" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="api" value="API Gateway&#xa;タスク受付" style="rounded=1;whiteSpace=wrap;html=1;" vertex="1" parent="1">
+          <mxGeometry x="260" y="180" width="160" height="70" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="lambda_receiver" value="Lambda&#xa;task_receiver" style="rounded=1;whiteSpace=wrap;html=1;" vertex="1" parent="1">
+          <mxGeometry x="480" y="180" width="170" height="70" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="stepfunctions" value="Step Functions&#xa;タスク制御" style="rounded=1;whiteSpace=wrap;html=1;" vertex="1" parent="1">
+          <mxGeometry x="720" y="180" width="180" height="70" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="prompt_builder" value="Lambda&#xa;prompt_builder" style="rounded=1;whiteSpace=wrap;html=1;" vertex="1" parent="1">
+          <mxGeometry x="980" y="80" width="170" height="70" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="bedrock" value="Amazon Bedrock&#xa;Claude" style="rounded=1;whiteSpace=wrap;html=1;" vertex="1" parent="1">
+          <mxGeometry x="980" y="180" width="170" height="70" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="formatter" value="Lambda&#xa;output_formatter" style="rounded=1;whiteSpace=wrap;html=1;" vertex="1" parent="1">
+          <mxGeometry x="980" y="280" width="170" height="70" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="s3" value="Amazon S3&#xa;成果物保存&#xa;Markdown / draw.io / JSON" style="rounded=1;whiteSpace=wrap;html=1;" vertex="1" parent="1">
+          <mxGeometry x="1230" y="120" width="210" height="90" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="dynamodb" value="DynamoDB&#xa;タスク状態管理" style="rounded=1;whiteSpace=wrap;html=1;" vertex="1" parent="1">
+          <mxGeometry x="1230" y="250" width="210" height="80" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="github" value="GitHub&#xa;drawio_kato&#xa;/docs /architecture" style="rounded=1;whiteSpace=wrap;html=1;" vertex="1" parent="1">
+          <mxGeometry x="1230" y="370" width="210" height="90" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="cloudwatch" value="CloudWatch Logs&#xa;実行ログ" style="rounded=1;whiteSpace=wrap;html=1;" vertex="1" parent="1">
+          <mxGeometry x="720" y="390" width="180" height="70" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="agentcore" value="Future&#xa;AgentCore Runtime" style="rounded=1;dashed=1;whiteSpace=wrap;html=1;" vertex="1" parent="1">
+          <mxGeometry x="720" y="520" width="180" height="70" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="kb" value="Future&#xa;Bedrock Knowledge Bases&#xa;RAG" style="rounded=1;dashed=1;whiteSpace=wrap;html=1;" vertex="1" parent="1">
+          <mxGeometry x="980" y="520" width="200" height="80" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="e1" edge="1" parent="1" source="user" target="api" style="endArrow=block;html=1;">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e2" edge="1" parent="1" source="api" target="lambda_receiver" style="endArrow=block;html=1;">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e3" edge="1" parent="1" source="lambda_receiver" target="stepfunctions" style="endArrow=block;html=1;">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e4" edge="1" parent="1" source="stepfunctions" target="prompt_builder" style="endArrow=block;html=1;">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e5" edge="1" parent="1" source="prompt_builder" target="bedrock" style="endArrow=block;html=1;">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e6" edge="1" parent="1" source="bedrock" target="formatter" style="endArrow=block;html=1;">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e7" edge="1" parent="1" source="formatter" target="s3" style="endArrow=block;html=1;">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e8" edge="1" parent="1" source="formatter" target="dynamodb" style="endArrow=block;html=1;">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e9" edge="1" parent="1" source="formatter" target="github" style="endArrow=block;html=1;">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e10" edge="1" parent="1" source="stepfunctions" target="cloudwatch" style="endArrow=block;html=1;">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e11" edge="1" parent="1" source="stepfunctions" target="agentcore" style="endArrow=block;dashed=1;html=1;">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e12" edge="1" parent="1" source="bedrock" target="kb" style="endArrow=block;dashed=1;html=1;">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>
