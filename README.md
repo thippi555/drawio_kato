@@ -72,6 +72,10 @@ aws sts get-caller-identity
 
 Bedrockモデルは低コストPoC向けに `global.anthropic.claude-haiku-4-5-20251001-v1:0` を標準とする。
 
+draw.io XMLはLambda側で `artifact.json` から生成する。
+ClaudeにはMarkdownと構造化JSONの生成を優先させる。
+AWSサービスの図形は draw.io 組み込みの AWS アイコンライブラリ `mxgraph.aws4.resourceIcon` を使用する。
+
 ## デプロイ
 
 Lambda ZIP を作成する。
@@ -107,6 +111,22 @@ APIへタスクを投入する。
 
 ```bash
 ./scripts/run_task.sh "Lambda + Bedrock + S3 の構成図を作成してください"
+```
+
+このスクリプトはデフォルトで、タスク投入後にS3成果物が作成されるまで待ち、ローカルへ自動ダウンロードする。
+
+`scripts` ディレクトリ内から実行する場合:
+
+```bash
+./run_task.sh "Lambda + Bedrock + S3 の構成図を作成してください"
+```
+
+スクリプトは自分の配置場所を基準に動作するため、どのディレクトリから呼び出しても成果物はリポジトリ直下の `docs/generated/`、`architecture/generated/`、`samples/` に保存される。
+
+タスク投入だけ行い、待機とダウンロードをしない場合:
+
+```bash
+./scripts/run_task.sh --no-wait "Lambda + Bedrock + S3 の構成図を作成してください"
 ```
 
 直接 `curl` で実行する場合:
