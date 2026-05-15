@@ -139,6 +139,14 @@ FAILED            失敗
 
 初期PoCでは `GITHUB_SKIPPED` は正常終了扱いとする。
 
+簡易確認スクリプト:
+
+```bash
+./scripts/check_task.sh <task_id>
+```
+
+このスクリプトは DynamoDB の状態、S3中間出力、S3成果物をまとめて表示する。
+
 ## S3確認
 
 中間出力:
