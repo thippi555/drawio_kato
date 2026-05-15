@@ -95,6 +95,14 @@ task_table = "ai_agent_tasks"
 
 APIへタスクを投入する。
 
+簡易実行スクリプト:
+
+```bash
+./scripts/run_task.sh "Lambda + Bedrock + S3 の構成図を作成してください"
+```
+
+直接 `curl` で実行する場合:
+
 ```bash
 curl -X POST \
   https://xe6v1x8cy5.execute-api.ap-northeast-1.amazonaws.com/tasks \
@@ -112,6 +120,13 @@ curl -X POST \
 ```
 
 以降は返却された `task_id` を使う。
+
+API endpoint を差し替える場合:
+
+```bash
+API_ENDPOINT="https://xxxxxxxxxx.execute-api.ap-northeast-1.amazonaws.com" \
+  ./scripts/run_task.sh "構成図を作成してください"
+```
 
 ## 状態確認
 
