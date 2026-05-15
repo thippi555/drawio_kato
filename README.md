@@ -23,6 +23,14 @@ scripts/        運用補助スクリプト
 samples/        生成JSONサンプル
 ```
 
+Terraform構成:
+
+```text
+terraform/main.tf       AWSリソース定義
+terraform/variables.tf  変数定義
+terraform/outputs.tf    出力定義
+```
+
 ## PoCフロー
 
 ```text
