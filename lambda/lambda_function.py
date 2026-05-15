@@ -25,8 +25,9 @@ ARTIFACT_BUCKET = os.environ.get("ARTIFACT_BUCKET", "drawio-kato-artifacts")
 STATE_MACHINE_ARN = os.environ.get("STATE_MACHINE_ARN", "")
 BEDROCK_MODEL_ID = os.environ.get(
     "BEDROCK_MODEL_ID",
-    "anthropic.claude-3-5-sonnet-20240620-v1:0",
+    "global.anthropic.claude-haiku-4-5-20251001-v1:0",
 )
+OUTPUT_SCHEMA_VERSION = "2026-05-15.1"
 GITHUB_OWNER = os.environ.get("GITHUB_OWNER", "thippi555")
 GITHUB_REPO = os.environ.get("GITHUB_REPO", "drawio_kato")
 GITHUB_BRANCH = os.environ.get("GITHUB_BRANCH", "main")
@@ -96,16 +97,41 @@ def build_prompt(event: Dict[str, Any]) -> Dict[str, Any]:
 
 以下のユーザー依頼を、AIが後続処理しやすい構造で成果物化してください。
 
+このプロジェクトの固定情報:
+- project_name: drawio_kato
+- repository: https://github.com/thippi555/drawio_kato
+- aws_region: ap-northeast-1
+- api_route: POST /tasks
+- lambda_function: drawio-kato-task-processor
+- state_machine: drawio-kato-task-flow
+- artifact_bucket: drawio-kato-artifacts
+- task_table: ai_agent_tasks
+- bedrock_model_id: {BEDROCK_MODEL_ID}
+- runtime: python3.12
+- iac: Terraform
+- storage_prefixes: tasks/, outputs/, prompts/, logs/
+- output_files: design.md, architecture.drawio, artifact.json
+
 必須出力:
 1. markdown: 設計書Markdown
 2. drawio_xml: draw.io XML
 3. artifact_json: 構造化JSON
 
 制約:
+- トップレベルキーは markdown, drawio_xml, artifact_json の3つのみ
+- markdown と drawio_xml は文字列
+- artifact_json はJSONオブジェクト
+- 上記の固定情報と矛盾する名前、サービス、ファイル構成を出さない
+- SAM、Cognito、VPC、入力用S3バケットは出力しない
+- 複数Lambda分割は将来拡張としてのみ扱う
 - 個人利用、低コスト、サーバレス中心
 - AWS構成はAPI Gateway、Lambda、Step Functions、Bedrock、S3、DynamoDBを優先
+- 実装済みフローは User → API Gateway → Lambda → Step Functions → Bedrock → S3/DynamoDB
 - GitHub保存しやすいファイル名を含める
-- JSONとしてパース可能な形式のみ返す
+- JSONとしてパース可能な形式のみ返す。末尾まで必ず閉じる
+- Markdownコードブロックや説明文は付けない
+- drawio_xml は有効な mxfile XML とし、主要ノードと矢印を含める
+- artifact_json には system, services, workflow, storage, dynamodb, files, future_extensions を含める
 
 ユーザー依頼:
 {input_text}
@@ -126,7 +152,7 @@ def invoke_bedrock(event: Dict[str, Any]) -> Dict[str, Any]:
     prompt = event["prompt"]
     body = {
         "anthropic_version": "bedrock-2023-05-31",
-        "max_tokens": 4096,
+        "max_tokens": 8192,
         "temperature": 0.2,
         "messages": [{"role": "user", "content": [{"type": "text", "text": prompt}]}],
     }
@@ -138,23 +164,54 @@ def invoke_bedrock(event: Dict[str, Any]) -> Dict[str, Any]:
     )
     payload = json.loads(response["body"].read())
     text = "".join(part.get("text", "") for part in payload.get("content", []))
-    key = f"tasks/{task_id}/bedrock_raw.json"
+    raw_key = f"tasks/{task_id}/bedrock_raw.json"
+    text_key = f"tasks/{task_id}/bedrock_text.txt"
     s3.put_object(
         Bucket=ARTIFACT_BUCKET,
-        Key=key,
+        Key=raw_key,
         Body=json.dumps(payload, ensure_ascii=False, indent=2).encode("utf-8"),
         ContentType="application/json; charset=utf-8",
     )
-    _update_task(task_id, status="BEDROCK_INVOKED", bedrock_raw_s3_path=f"s3://{ARTIFACT_BUCKET}/{key}")
-    return {**event, "bedrock_text": text, "bedrock_raw_s3_path": f"s3://{ARTIFACT_BUCKET}/{key}"}
+    s3.put_object(
+        Bucket=ARTIFACT_BUCKET,
+        Key=text_key,
+        Body=text.encode("utf-8"),
+        ContentType="text/plain; charset=utf-8",
+    )
+    _update_task(
+        task_id,
+        status="BEDROCK_INVOKED",
+        bedrock_raw_s3_path=f"s3://{ARTIFACT_BUCKET}/{raw_key}",
+        bedrock_text_s3_path=f"s3://{ARTIFACT_BUCKET}/{text_key}",
+    )
+    return {
+        "task_id": task_id,
+        "input_text": event["input_text"],
+        "prompt_s3_path": event["prompt_s3_path"],
+        "bedrock_raw_s3_path": f"s3://{ARTIFACT_BUCKET}/{raw_key}",
+        "bedrock_text_s3_path": f"s3://{ARTIFACT_BUCKET}/{text_key}",
+    }
 
 
 def format_output(event: Dict[str, Any]) -> Dict[str, Any]:
     task_id = event["task_id"]
-    output = _parse_json_text(event["bedrock_text"])
-    markdown = output.get("markdown", "")
-    drawio_xml = output.get("drawio_xml", "")
-    artifact_json = output.get("artifact_json", output)
+    bedrock_text = event.get("bedrock_text") or _read_s3_uri(event["bedrock_text_s3_path"])
+    try:
+        output = _parse_json_text(bedrock_text)
+    except json.JSONDecodeError as exc:
+        output = {
+            "markdown": bedrock_text,
+            "drawio_xml": _minimal_drawio_xml({"metadata": {"title": "AI Agent Architecture"}}),
+            "artifact_json": {
+                "parse_error": str(exc),
+                "source": event.get("bedrock_text_s3_path"),
+            },
+        }
+    normalized = _normalize_output(output, bedrock_text)
+    normalized["artifact_json"] = _enrich_artifact_json(normalized["artifact_json"], task_id)
+    markdown = normalized["markdown"]
+    drawio_xml = normalized["drawio_xml"]
+    artifact_json = normalized["artifact_json"]
 
     keys = {
         "markdown": f"outputs/{task_id}/design.md",
@@ -167,14 +224,14 @@ def format_output(event: Dict[str, Any]) -> Dict[str, Any]:
 
     result = {
         **event,
-        "formatted_output": output,
+        "formatted_output": normalized,
         "output_s3_path": f"s3://{ARTIFACT_BUCKET}/outputs/{task_id}/",
         "github_files": [
-            {"path": f"docs/generated/{task_id}.md", "content": markdown},
-            {"path": f"architecture/generated/{task_id}.drawio", "content": drawio_xml},
+            {"path": f"docs/generated/{task_id}.md", "s3_path": f"s3://{ARTIFACT_BUCKET}/{keys['markdown']}"},
+            {"path": f"architecture/generated/{task_id}.drawio", "s3_path": f"s3://{ARTIFACT_BUCKET}/{keys['drawio']}"},
             {
                 "path": f"samples/{task_id}.json",
-                "content": json.dumps(artifact_json, ensure_ascii=False, indent=2),
+                "s3_path": f"s3://{ARTIFACT_BUCKET}/{keys['json']}",
             },
         ],
     }
@@ -193,7 +250,11 @@ def write_github(event: Dict[str, Any]) -> Dict[str, Any]:
     written_paths = []
     for file_item in files:
         path = file_item["path"]
-        content = file_item.get("content", "")
+        content = file_item.get("content")
+        if content is None and file_item.get("s3_path"):
+            content = _read_s3_uri(file_item["s3_path"])
+        if content is None:
+            content = ""
         _put_github_file(token, path, content, f"Add generated artifact for task {task_id}")
         written_paths.append(path)
         time.sleep(0.2)
@@ -229,10 +290,126 @@ def _parse_json_text(text: str) -> Dict[str, Any]:
     stripped = text.strip()
     if stripped.startswith("```"):
         lines = stripped.splitlines()
-        stripped = "\n".join(lines[1:-1]).strip()
-        if stripped.startswith("json"):
-            stripped = stripped[4:].strip()
+        if lines[0].strip().startswith("```"):
+            lines = lines[1:]
+        if lines and lines[-1].strip().startswith("```"):
+            lines = lines[:-1]
+        stripped = "\n".join(lines).strip()
+    if stripped.startswith("json"):
+        stripped = stripped[4:].strip()
+    if not stripped.startswith("{"):
+        start = stripped.find("{")
+        end = stripped.rfind("}")
+        if start >= 0 and end > start:
+            stripped = stripped[start : end + 1]
     return json.loads(stripped)
+
+
+def _normalize_output(output: Dict[str, Any], raw_text: str) -> Dict[str, Any]:
+    outputs = output.get("outputs", {}) if isinstance(output.get("outputs"), dict) else {}
+    markdown = _content_value(output.get("markdown")) or _content_value(outputs.get("markdown"))
+    drawio_xml = (
+        _content_value(output.get("drawio_xml"))
+        or _content_value(outputs.get("drawio_xml"))
+        or _content_value(outputs.get("drawio"))
+    )
+    artifact_json = output.get("artifact_json") or outputs.get("artifact_json") or output
+
+    if not markdown:
+        markdown = raw_text
+    if not drawio_xml:
+        drawio_xml = _minimal_drawio_xml(output)
+
+    return {
+        "markdown": markdown,
+        "drawio_xml": drawio_xml,
+        "artifact_json": artifact_json,
+    }
+
+
+def _enrich_artifact_json(artifact_json: Any, task_id: str) -> Dict[str, Any]:
+    if not isinstance(artifact_json, dict):
+        artifact_json = {"value": artifact_json}
+    artifact_json.setdefault("system", {})
+    artifact_json["system"].update(
+        {
+            "project_name": "drawio_kato",
+            "repository": "https://github.com/thippi555/drawio_kato",
+            "aws_region": "ap-northeast-1",
+            "api_route": "POST /tasks",
+            "lambda_function": "drawio-kato-task-processor",
+            "state_machine": "drawio-kato-task-flow",
+            "bedrock_model_id": BEDROCK_MODEL_ID,
+        }
+    )
+    artifact_json.setdefault("storage", {})
+    artifact_json["storage"].update(
+        {
+            "artifact_bucket": ARTIFACT_BUCKET,
+            "output_prefix": f"outputs/{task_id}/",
+            "task_prefix": f"tasks/{task_id}/",
+        }
+    )
+    artifact_json.setdefault("dynamodb", {"table_name": TASK_TABLE_NAME, "partition_key": "task_id"})
+    artifact_json.setdefault(
+        "files",
+        [
+            f"outputs/{task_id}/design.md",
+            f"outputs/{task_id}/architecture.drawio",
+            f"outputs/{task_id}/artifact.json",
+        ],
+    )
+    artifact_json["future_extensions"] = _filter_future_extensions(artifact_json.get("future_extensions", []))
+    artifact_json["schema_version"] = OUTPUT_SCHEMA_VERSION
+    return artifact_json
+
+
+def _filter_future_extensions(value: Any) -> Any:
+    blocked_terms = ("sam", "cognito", "vpc", "input bucket", "input-only s3")
+    if not isinstance(value, list):
+        return value
+    filtered = []
+    for item in value:
+        text = json.dumps(item, ensure_ascii=False).lower()
+        if any(term in text for term in blocked_terms):
+            continue
+        filtered.append(item)
+    return filtered
+
+
+def _content_value(value: Any) -> str:
+    if isinstance(value, str):
+        return value
+    if isinstance(value, dict):
+        content = value.get("content") or value.get("body") or value.get("text")
+        if isinstance(content, str):
+            return content
+    return ""
+
+
+def _minimal_drawio_xml(output: Dict[str, Any]) -> str:
+    title = (
+        output.get("metadata", {}).get("title")
+        if isinstance(output.get("metadata"), dict)
+        else "AI Agent Architecture"
+    )
+    return (
+        '<mxfile host="app.diagrams.net">'
+        '<diagram name="Architecture">'
+        '<mxGraphModel><root><mxCell id="0"/><mxCell id="1" parent="0"/>'
+        f'<mxCell id="title" value="{_xml_escape(title)}" style="text;html=1;" vertex="1" parent="1">'
+        '<mxGeometry x="40" y="40" width="240" height="40" as="geometry"/></mxCell>'
+        "</root></mxGraphModel></diagram></mxfile>"
+    )
+
+
+def _xml_escape(value: str) -> str:
+    return (
+        value.replace("&", "&amp;")
+        .replace('"', "&quot;")
+        .replace("<", "&lt;")
+        .replace(">", "&gt;")
+    )
 
 
 def _put_text(key: str, content: str, content_type: str) -> None:
@@ -242,6 +419,16 @@ def _put_text(key: str, content: str, content_type: str) -> None:
         Body=content.encode("utf-8"),
         ContentType=content_type,
     )
+
+
+def _read_s3_uri(uri: str) -> str:
+    prefix = "s3://"
+    if not uri.startswith(prefix):
+        raise ValueError(f"Unsupported S3 URI: {uri}")
+    bucket_and_key = uri[len(prefix) :]
+    bucket, key = bucket_and_key.split("/", 1)
+    response = s3.get_object(Bucket=bucket, Key=key)
+    return response["Body"].read().decode("utf-8")
 
 
 def _put_github_file(token: str, path: str, content: str, message: str) -> None:

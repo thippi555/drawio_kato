@@ -32,7 +32,7 @@ variable "artifact_bucket_name" {
 
 variable "bedrock_model_id" {
   type    = string
-  default = "anthropic.claude-3-5-sonnet-20240620-v1:0"
+  default = "global.anthropic.claude-haiku-4-5-20251001-v1:0"
 }
 
 variable "github_owner" {
@@ -171,13 +171,14 @@ resource "aws_iam_role_policy" "lambda" {
 }
 
 resource "aws_lambda_function" "task_processor" {
-  function_name = "${var.project_name}-task-processor"
-  role          = aws_iam_role.lambda.arn
-  handler       = "lambda_function.lambda_handler"
-  runtime       = "python3.12"
-  filename      = var.lambda_zip_path
-  timeout       = 120
-  memory_size   = 256
+  function_name    = "${var.project_name}-task-processor"
+  role             = aws_iam_role.lambda.arn
+  handler          = "lambda_function.lambda_handler"
+  runtime          = "python3.12"
+  filename         = var.lambda_zip_path
+  source_code_hash = filebase64sha256(var.lambda_zip_path)
+  timeout          = 120
+  memory_size      = 256
 
   environment {
     variables = {

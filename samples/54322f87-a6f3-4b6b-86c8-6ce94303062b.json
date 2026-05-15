@@ -1,0 +1,328 @@
+{
+  "system": {
+    "project_name": "drawio_kato",
+    "repository": "https://github.com/thippi555/drawio_kato",
+    "aws_region": "ap-northeast-1",
+    "runtime": "python3.12",
+    "iac": "Terraform",
+    "deployment_model": "serverless",
+    "cost_model": "pay_as_you_go",
+    "api_route": "POST /tasks",
+    "lambda_function": "drawio-kato-task-processor",
+    "state_machine": "drawio-kato-task-flow",
+    "bedrock_model_id": "global.anthropic.claude-haiku-4-5-20251001-v1:0"
+  },
+  "services": {
+    "api_gateway": {
+      "type": "REST API",
+      "endpoint": "POST /tasks",
+      "authentication": "none",
+      "rate_limiting": "lightweight"
+    },
+    "lambda": {
+      "function_name": "drawio-kato-task-processor",
+      "runtime": "python3.12",
+      "memory_mb": 256,
+      "timeout_seconds": 60,
+      "role_permissions": [
+        "bedrock:InvokeModel",
+        "s3:GetObject",
+        "s3:PutObject",
+        "dynamodb:PutItem",
+        "dynamodb:UpdateItem",
+        "dynamodb:GetItem",
+        "logs:CreateLogGroup",
+        "logs:CreateLogStream",
+        "logs:PutLogEvents"
+      ]
+    },
+    "step_functions": {
+      "state_machine_name": "drawio-kato-task-flow",
+      "steps": [
+        "task_validation",
+        "bedrock_invocation",
+        "result_processing",
+        "s3_storage",
+        "dynamodb_update"
+      ]
+    },
+    "bedrock": {
+      "model_id": "global.anthropic.claude-haiku-4-5-20251001-v1:0",
+      "model_name": "Claude Haiku 4.5",
+      "capabilities": [
+        "text_generation",
+        "json_structured_output",
+        "design_document_creation"
+      ]
+    },
+    "s3": {
+      "bucket_name": "drawio-kato-artifacts",
+      "encryption": "SSE-S3",
+      "versioning": false
+    },
+    "dynamodb": {
+      "table_name": "ai_agent_tasks",
+      "billing_mode": "PAY_PER_REQUEST",
+      "encryption": true
+    }
+  },
+  "workflow": {
+    "request_flow": [
+      {
+        "step": 1,
+        "actor": "User",
+        "action": "Send POST request to API Gateway",
+        "endpoint": "/tasks",
+        "payload_type": "JSON"
+      },
+      {
+        "step": 2,
+        "actor": "API Gateway",
+        "action": "Validate and forward to Lambda",
+        "validation": "request_schema_check"
+      },
+      {
+        "step": 3,
+        "actor": "Lambda",
+        "action": "Process request, create task record",
+        "operations": [
+          "validate_input",
+          "generate_task_id",
+          "write_to_dynamodb",
+          "invoke_step_functions"
+        ]
+      },
+      {
+        "step": 4,
+        "actor": "Lambda",
+        "action": "Return task_id to user",
+        "response_type": "JSON",
+        "status_code": 202
+      },
+      {
+        "step": 5,
+        "actor": "Step Functions",
+        "action": "Execute state machine",
+        "parallel_execution": false
+      },
+      {
+        "step": 6,
+        "actor": "Step Functions",
+        "action": "Invoke Bedrock model",
+        "input_source": "S3 prompts/",
+        "model_parameters": {
+          "temperature": 0.7,
+          "max_tokens": 4096
+        }
+      },
+      {
+        "step": 7,
+        "actor": "Bedrock",
+        "action": "Generate design artifacts",
+        "outputs": [
+          "design.md",
+          "architecture.drawio",
+          "artifact.json"
+        ]
+      },
+      {
+        "step": 8,
+        "actor": "Step Functions",
+        "action": "Save outputs to S3",
+        "destination": "s3://drawio-kato-artifacts/outputs/"
+      },
+      {
+        "step": 9,
+        "actor": "Step Functions",
+        "action": "Update task status in DynamoDB",
+        "new_status": "completed"
+      },
+      {
+        "step": 10,
+        "actor": "Lambda",
+        "action": "Log execution metrics",
+        "destination": "S3 logs/ and CloudWatch"
+      }
+    ]
+  },
+  "storage": {
+    "s3_bucket": "drawio-kato-artifacts",
+    "prefixes": {
+      "tasks": {
+        "path": "tasks/",
+        "purpose": "Input task definitions",
+        "retention_days": 30
+      },
+      "outputs": {
+        "path": "outputs/",
+        "purpose": "Generated design artifacts",
+        "retention_days": 90
+      },
+      "prompts": {
+        "path": "prompts/",
+        "purpose": "Bedrock prompt templates",
+        "retention_days": null
+      },
+      "logs": {
+        "path": "logs/",
+        "purpose": "Processing and error logs",
+        "retention_days": 30
+      }
+    },
+    "output_files": {
+      "design_md": {
+        "filename": "design.md",
+        "format": "Markdown",
+        "content": "Architecture design document"
+      },
+      "architecture_drawio": {
+        "filename": "architecture.drawio",
+        "format": "XML (draw.io)",
+        "content": "Visual architecture diagram"
+      },
+      "artifact_json": {
+        "filename": "artifact.json",
+        "format": "JSON",
+        "content": "Structured metadata and configuration"
+      }
+    },
+    "artifact_bucket": "drawio-kato-artifacts",
+    "output_prefix": "outputs/54322f87-a6f3-4b6b-86c8-6ce94303062b/",
+    "task_prefix": "tasks/54322f87-a6f3-4b6b-86c8-6ce94303062b/"
+  },
+  "dynamodb": {
+    "table_name": "ai_agent_tasks",
+    "partition_key": {
+      "name": "task_id",
+      "type": "String"
+    },
+    "sort_key": {
+      "name": "created_at",
+      "type": "Number"
+    },
+    "attributes": [
+      {
+        "name": "task_id",
+        "type": "String",
+        "description": "Unique task identifier"
+      },
+      {
+        "name": "created_at",
+        "type": "Number",
+        "description": "Unix timestamp of task creation"
+      },
+      {
+        "name": "status",
+        "type": "String",
+        "enum": [
+          "pending",
+          "processing",
+          "completed",
+          "failed"
+        ]
+      },
+      {
+        "name": "input_data",
+        "type": "Map",
+        "description": "Original user input"
+      },
+      {
+        "name": "output_s3_path",
+        "type": "String",
+        "description": "S3 path to generated outputs"
+      },
+      {
+        "name": "model_id",
+        "type": "String",
+        "description": "Bedrock model used"
+      },
+      {
+        "name": "execution_time_ms",
+        "type": "Number",
+        "description": "Total execution time in milliseconds"
+      },
+      {
+        "name": "error_message",
+        "type": "String",
+        "description": "Error details if status is failed"
+      }
+    ],
+    "ttl": {
+      "enabled": false,
+      "attribute_name": null
+    }
+  },
+  "files": {
+    "terraform_files": [
+      "terraform/main.tf",
+      "terraform/lambda.tf",
+      "terraform/stepfunctions.tf",
+      "terraform/s3.tf",
+      "terraform/dynamodb.tf",
+      "terraform/variables.tf"
+    ],
+    "lambda_files": [
+      "lambda/handler.py"
+    ],
+    "stepfunctions_files": [
+      "stepfunctions/state_machine.json"
+    ],
+    "prompt_files": [
+      "prompts/design_prompt.txt",
+      "prompts/drawio_prompt.txt",
+      "prompts/artifact_prompt.txt"
+    ],
+    "documentation": [
+      "README.md",
+      "design.md"
+    ],
+    "ci_cd": [
+      ".github/workflows/deploy.yml"
+    ]
+  },
+  "future_extensions": [
+    {
+      "feature": "Authentication",
+      "service": "AWS Cognito",
+      "priority": "medium",
+      "description": "Add user authentication and authorization"
+    },
+    {
+      "feature": "Network Isolation",
+      "service": "VPC",
+      "priority": "low",
+      "description": "Deploy Lambda and other services in VPC"
+    },
+    {
+      "feature": "Function Decomposition",
+      "service": "Multiple Lambda Functions",
+      "priority": "medium",
+      "description": "Split into input processor, inference handler, output processor"
+    },
+    {
+      "feature": "Monitoring",
+      "service": "CloudWatch Dashboards + X-Ray",
+      "priority": "high",
+      "description": "Add comprehensive monitoring and tracing"
+    },
+    {
+      "feature": "Caching",
+      "service": "ElastiCache",
+      "priority": "low",
+      "description": "Cache frequently used prompts and results"
+    },
+    {
+      "feature": "Async Processing",
+      "service": "SQS/SNS",
+      "priority": "medium",
+      "description": "Decouple components with message queues"
+    },
+    {
+      "feature": "Input Validation",
+      "service": "AWS SAM",
+      "priority": "low",
+      "description": "Migrate to SAM for better local testing"
+    }
+  ],
+  "schema_version": "2026-05-15.1"
+}

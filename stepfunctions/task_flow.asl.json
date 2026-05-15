@@ -49,9 +49,8 @@
         "action": "format_output",
         "task_id.$": "$.task_id",
         "input_text.$": "$.input_text",
-        "prompt.$": "$.prompt",
         "prompt_s3_path.$": "$.prompt_s3_path",
-        "bedrock_text.$": "$.bedrock_text",
+        "bedrock_text_s3_path.$": "$.bedrock_text_s3_path",
         "bedrock_raw_s3_path.$": "$.bedrock_raw_s3_path"
       },
       "Catch": [{"ErrorEquals": ["States.ALL"], "ResultPath": "$.error", "Next": "MarkFailed"}],

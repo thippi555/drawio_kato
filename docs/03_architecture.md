@@ -123,6 +123,7 @@ COMPLETED
     "input_text": "string",
     "prompt_s3_path": "string",
     "bedrock_raw_s3_path": "string",
+    "bedrock_text_s3_path": "string",
     "output_s3_path": "string",
     "github_path": "string",
     "created_at": "string",
@@ -198,6 +199,81 @@ outputs/{task_id}/architecture.drawio
 outputs/{task_id}/artifact.json
 ```
 
+Bedrockの応答本文はStep Functionsの状態データ肥大化を避けるため、以下へ保存し、後続処理ではS3パスを受け渡す。
+
+```text
+tasks/{task_id}/bedrock_raw.json
+tasks/{task_id}/bedrock_text.txt
+```
+
+---
+
+## 8. 生成物品質方針
+
+生成物は人間向けの見た目より、後続AIとIaCが再利用しやすい正確性を優先する。
+
+### 8.1 固定情報
+
+以下の値は生成AIが推測で変更してはならない。
+
+```json
+{
+  "project_name": "drawio_kato",
+  "repository": "https://github.com/thippi555/drawio_kato",
+  "aws_region": "ap-northeast-1",
+  "api_route": "POST /tasks",
+  "lambda_function": "drawio-kato-task-processor",
+  "state_machine": "drawio-kato-task-flow",
+  "artifact_bucket": "drawio-kato-artifacts",
+  "task_table": "ai_agent_tasks",
+  "iac": "Terraform",
+  "runtime": "python3.12"
+}
+```
+
+### 8.2 禁止する混入
+
+PoC成果物では、以下を実装済みとして扱わない。
+
+```json
+{
+  "future_only": [
+    "multiple Lambda split",
+    "Slack integration",
+    "Teams integration",
+    "AgentCore Runtime",
+    "Bedrock Knowledge Bases"
+  ]
+}
+```
+
+以下は将来拡張としても生成物に含めない。
+
+```json
+{
+  "blocked": [
+    "SAM",
+    "Cognito",
+    "VPC",
+    "input-only S3 bucket"
+  ]
+}
+```
+
+### 8.3 期待するartifact_json
+
+```json
+{
+  "system": {},
+  "services": [],
+  "workflow": [],
+  "storage": {},
+  "dynamodb": {},
+  "files": [],
+  "future_extensions": []
+}
+```
+
 GitHub保存先:
 
 ```text
@@ -205,3 +281,6 @@ docs/generated/{task_id}.md
 architecture/generated/{task_id}.drawio
 samples/{task_id}.json
 ```
+
+初期PoCではLambdaからGitHubへ直接Pushしない。
+S3の成果物を `scripts/download_artifacts.sh` で手元に取り込み、人間が内容確認後にGitHubへcommitする。
