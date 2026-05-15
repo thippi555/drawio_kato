@@ -1,0 +1,217 @@
+{
+  "project": {
+    "name": "drawio_kato",
+    "repository": "https://github.com/thippi555/drawio_kato",
+    "region": "ap-northeast-1",
+    "runtime": "python3.12",
+    "iac": "Terraform"
+  },
+  "system": {
+    "type": "serverless",
+    "cost_model": "pay-as-you-go",
+    "use_case": "AWS architecture design generation via AI",
+    "primary_user": "individual",
+    "project_name": "drawio_kato",
+    "repository": "https://github.com/thippi555/drawio_kato",
+    "aws_region": "ap-northeast-1",
+    "api_route": "POST /tasks",
+    "lambda_function": "drawio-kato-task-processor",
+    "state_machine": "drawio-kato-task-flow",
+    "bedrock_model_id": "global.anthropic.claude-haiku-4-5-20251001-v1:0"
+  },
+  "services": [
+    {
+      "name": "API Gateway",
+      "type": "api",
+      "endpoint": "POST /tasks",
+      "purpose": "Accept user requests"
+    },
+    {
+      "name": "Lambda",
+      "type": "compute",
+      "function_name": "drawio-kato-task-processor",
+      "runtime": "python3.12",
+      "purpose": "Process requests and trigger Step Functions"
+    },
+    {
+      "name": "Step Functions",
+      "type": "orchestration",
+      "state_machine": "drawio-kato-task-flow",
+      "purpose": "Workflow control and Bedrock coordination"
+    },
+    {
+      "name": "Bedrock",
+      "type": "ai",
+      "model_id": "global.anthropic.claude-haiku-4-5-20251001-v1:0",
+      "purpose": "Generate design documents and architecture"
+    },
+    {
+      "name": "S3",
+      "type": "storage",
+      "bucket": "drawio-kato-artifacts",
+      "purpose": "Store tasks, outputs, prompts, logs"
+    },
+    {
+      "name": "DynamoDB",
+      "type": "database",
+      "table": "ai_agent_tasks",
+      "purpose": "Task metadata and execution history"
+    }
+  ],
+  "workflow": [
+    {
+      "from": "User",
+      "to": "API Gateway",
+      "label": "POST /tasks"
+    },
+    {
+      "from": "API Gateway",
+      "to": "Lambda",
+      "label": "Invoke drawio-kato-task-processor"
+    },
+    {
+      "from": "Lambda",
+      "to": "DynamoDB",
+      "label": "Register task"
+    },
+    {
+      "from": "Lambda",
+      "to": "Step Functions",
+      "label": "Start execution"
+    },
+    {
+      "from": "Step Functions",
+      "to": "Bedrock",
+      "label": "Request design generation"
+    },
+    {
+      "from": "Bedrock",
+      "to": "Step Functions",
+      "label": "Return generated content"
+    },
+    {
+      "from": "Step Functions",
+      "to": "S3",
+      "label": "Save design.md, architecture.drawio, artifact.json"
+    },
+    {
+      "from": "Step Functions",
+      "to": "DynamoDB",
+      "label": "Update task status"
+    },
+    {
+      "from": "Lambda",
+      "to": "User",
+      "label": "Return result URL"
+    }
+  ],
+  "storage": {
+    "bucket": "drawio-kato-artifacts",
+    "prefixes": [
+      "tasks/",
+      "outputs/",
+      "prompts/",
+      "logs/"
+    ],
+    "structure": {
+      "tasks": "{task_id}/input.json",
+      "outputs": "{task_id}/design.md, {task_id}/architecture.drawio, {task_id}/artifact.json",
+      "prompts": "system_prompt.txt, design_template.txt",
+      "logs": "{task_id}/execution.log"
+    },
+    "artifact_bucket": "drawio-kato-artifacts",
+    "output_prefix": "outputs/ccae2d8c-d5a4-46ab-843c-a26f13f811f2/",
+    "task_prefix": "tasks/ccae2d8c-d5a4-46ab-843c-a26f13f811f2/"
+  },
+  "dynamodb": {
+    "table_name": "ai_agent_tasks",
+    "primary_key": "task_id",
+    "attributes": [
+      {
+        "name": "task_id",
+        "type": "String",
+        "role": "PK"
+      },
+      {
+        "name": "timestamp",
+        "type": "Number",
+        "role": "sort_key"
+      },
+      {
+        "name": "status",
+        "type": "String",
+        "values": [
+          "PENDING",
+          "PROCESSING",
+          "COMPLETED",
+          "FAILED"
+        ]
+      },
+      {
+        "name": "input_s3_path",
+        "type": "String"
+      },
+      {
+        "name": "output_s3_path",
+        "type": "String"
+      },
+      {
+        "name": "model_id",
+        "type": "String"
+      },
+      {
+        "name": "user_id",
+        "type": "String"
+      },
+      {
+        "name": "error_message",
+        "type": "String"
+      }
+    ]
+  },
+  "files": {
+    "output_files": [
+      {
+        "name": "design.md",
+        "format": "Markdown",
+        "purpose": "Design document in Markdown format",
+        "location": "outputs/{task_id}/"
+      },
+      {
+        "name": "architecture.drawio",
+        "format": "XML",
+        "purpose": "Visual architecture diagram (auto-generated from artifact.json)",
+        "location": "outputs/{task_id}/"
+      },
+      {
+        "name": "artifact.json",
+        "format": "JSON",
+        "purpose": "Structured data for programmatic processing",
+        "location": "outputs/{task_id}/"
+      }
+    ]
+  },
+  "future_extensions": [
+    {
+      "feature": "Lambda function splitting",
+      "description": "Divide into multiple Lambda functions for task processing, result generation, and notifications"
+    },
+    {
+      "feature": "Multiple Bedrock models",
+      "description": "Support model selection (Haiku, Sonnet, Opus)"
+    },
+    {
+      "feature": "Caching mechanism",
+      "description": "Cache frequently generated designs"
+    },
+    {
+      "feature": "User authentication",
+      "description": "Enhance security with API key or OAuth"
+    },
+    {
+      "feature": "Async notifications",
+      "description": "Add SNS/SQS for result notifications"
+    }
+  ],
+  "schema_version": "2026-05-15.1"
+}

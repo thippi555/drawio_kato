@@ -1,0 +1,215 @@
+{
+  "system": {
+    "project_name": "drawio_kato",
+    "repository": "https://github.com/thippi555/drawio_kato",
+    "aws_region": "ap-northeast-1",
+    "runtime": "python3.12",
+    "iac": "Terraform",
+    "api_route": "POST /tasks",
+    "lambda_function": "drawio-kato-task-processor",
+    "state_machine": "drawio-kato-task-flow",
+    "bedrock_model_id": "global.anthropic.claude-haiku-4-5-20251001-v1:0"
+  },
+  "services": {
+    "api_gateway": {
+      "route": "POST /tasks",
+      "description": "ユーザーリクエスト受け入れエンドポイント"
+    },
+    "lambda": {
+      "function_name": "drawio-kato-task-processor",
+      "runtime": "python3.12",
+      "timeout": 60,
+      "description": "リクエスト処理とStep Functions実行"
+    },
+    "step_functions": {
+      "state_machine": "drawio-kato-task-flow",
+      "description": "タスク処理フロー制御"
+    },
+    "bedrock": {
+      "model_id": "global.anthropic.claude-haiku-4-5-20251001-v1:0",
+      "description": "AI処理実行"
+    },
+    "s3": {
+      "bucket_name": "drawio-kato-artifacts",
+      "description": "アーティファクト保存"
+    },
+    "dynamodb": {
+      "table_name": "ai_agent_tasks",
+      "description": "タスク状態管理"
+    }
+  },
+  "workflow": [
+    {
+      "from": "User",
+      "to": "API Gateway",
+      "label": "POST /tasks"
+    },
+    {
+      "from": "API Gateway",
+      "to": "Lambda",
+      "label": "invoke"
+    },
+    {
+      "from": "Lambda",
+      "to": "DynamoDB",
+      "label": "create task record"
+    },
+    {
+      "from": "Lambda",
+      "to": "Step Functions",
+      "label": "start execution"
+    },
+    {
+      "from": "Step Functions",
+      "to": "S3",
+      "label": "read prompts"
+    },
+    {
+      "from": "Step Functions",
+      "to": "Bedrock",
+      "label": "invoke model"
+    },
+    {
+      "from": "Bedrock",
+      "to": "Step Functions",
+      "label": "return result"
+    },
+    {
+      "from": "Step Functions",
+      "to": "S3",
+      "label": "write outputs"
+    },
+    {
+      "from": "Step Functions",
+      "to": "DynamoDB",
+      "label": "update status"
+    },
+    {
+      "from": "Lambda",
+      "to": "API Gateway",
+      "label": "return response"
+    },
+    {
+      "from": "API Gateway",
+      "to": "User",
+      "label": "task_id, status"
+    }
+  ],
+  "storage": {
+    "s3_bucket": "drawio-kato-artifacts",
+    "prefixes": {
+      "tasks": "tasks/",
+      "outputs": "outputs/",
+      "prompts": "prompts/",
+      "logs": "logs/"
+    },
+    "output_files": [
+      "design.md",
+      "architecture.drawio",
+      "artifact.json"
+    ],
+    "artifact_bucket": "drawio-kato-artifacts",
+    "output_prefix": "outputs/ca3ca7fb-ef12-4081-9632-bd44f29cace3/",
+    "task_prefix": "tasks/ca3ca7fb-ef12-4081-9632-bd44f29cace3/"
+  },
+  "dynamodb": {
+    "table_name": "ai_agent_tasks",
+    "partition_key": {
+      "name": "task_id",
+      "type": "S"
+    },
+    "sort_key": {
+      "name": "timestamp",
+      "type": "N"
+    },
+    "attributes": [
+      {
+        "name": "task_id",
+        "type": "S",
+        "description": "タスク識別子"
+      },
+      {
+        "name": "timestamp",
+        "type": "N",
+        "description": "作成時刻（Unix timestamp）"
+      },
+      {
+        "name": "status",
+        "type": "S",
+        "description": "処理ステータス（pending, processing, completed, failed）"
+      },
+      {
+        "name": "input_data",
+        "type": "S",
+        "description": "入力データ（JSON文字列）"
+      },
+      {
+        "name": "output_location",
+        "type": "S",
+        "description": "S3出力パス"
+      },
+      {
+        "name": "created_at",
+        "type": "S",
+        "description": "作成日時（ISO 8601）"
+      },
+      {
+        "name": "updated_at",
+        "type": "S",
+        "description": "更新日時（ISO 8601）"
+      }
+    ],
+    "billing_mode": "PAY_PER_REQUEST"
+  },
+  "files": {
+    "terraform": [
+      "terraform/main.tf",
+      "terraform/lambda.tf",
+      "terraform/step_functions.tf",
+      "terraform/s3.tf",
+      "terraform/dynamodb.tf",
+      "terraform/variables.tf"
+    ],
+    "lambda": [
+      "lambda/handler.py",
+      "lambda/requirements.txt",
+      "lambda/utils.py"
+    ],
+    "prompts": [
+      "prompts/design_generation.txt",
+      "prompts/architecture_analysis.txt"
+    ],
+    "tests": [
+      "tests/test_handler.py",
+      "tests/test_integration.py"
+    ],
+    "docs": [
+      "docs/ARCHITECTURE.md",
+      "docs/DEPLOYMENT.md",
+      "README.md"
+    ]
+  },
+  "future_extensions": [
+    {
+      "name": "Lambda関数分割",
+      "description": "タスク種別別に複数Lambda関数へ分割",
+      "status": "planned"
+    },
+    {
+      "name": "キャッシング機構",
+      "description": "ElastiCacheを利用した結果キャッシング",
+      "status": "planned"
+    },
+    {
+      "name": "非同期処理強化",
+      "description": "SQS/SNSを利用した非同期処理パイプライン",
+      "status": "planned"
+    },
+    {
+      "name": "監視・ロギング拡張",
+      "description": "CloudWatch Logs、X-Rayの統合",
+      "status": "planned"
+    }
+  ],
+  "schema_version": "2026-05-15.1"
+}

@@ -1,0 +1,287 @@
+{
+  "system": {
+    "project_name": "drawio_kato",
+    "repository": "https://github.com/thippi555/drawio_kato",
+    "aws_region": "ap-northeast-1",
+    "runtime": "python3.12",
+    "iac": "Terraform",
+    "pattern": "RAG (Retrieval-Augmented Generation)",
+    "api_route": "POST /tasks",
+    "lambda_function": "drawio-kato-task-processor",
+    "state_machine": "drawio-kato-task-flow",
+    "bedrock_model_id": "global.anthropic.claude-haiku-4-5-20251001-v1:0"
+  },
+  "services": {
+    "api_gateway": {
+      "route": "POST /tasks",
+      "description": "RAGクエリ受付エンドポイント"
+    },
+    "lambda": {
+      "function_name": "drawio-kato-task-processor",
+      "runtime": "python3.12",
+      "responsibilities": [
+        "リクエスト検証",
+        "Step Functions実行トリガー",
+        "エラーハンドリング"
+      ]
+    },
+    "step_functions": {
+      "state_machine": "drawio-kato-task-flow",
+      "states": [
+        "ValidateQuery",
+        "GenerateEmbedding",
+        "SearchDocuments",
+        "BuildPrompt",
+        "InvokeBedrockModel",
+        "SaveResults",
+        "UpdateMetadata"
+      ]
+    },
+    "bedrock": {
+      "model_id": "global.anthropic.claude-haiku-4-5-20251001-v1:0",
+      "embeddings_model": "amazon.titan-embed-text-v2:0",
+      "capabilities": [
+        "テキスト埋め込み生成",
+        "回答生成"
+      ]
+    },
+    "dynamodb": {
+      "tables": [
+        {
+          "name": "ai_agent_tasks",
+          "partition_key": "task_id",
+          "sort_key": "created_at",
+          "billing_mode": "PAY_PER_REQUEST"
+        },
+        {
+          "name": "rag_documents",
+          "partition_key": "doc_id",
+          "sort_key": "version",
+          "billing_mode": "PAY_PER_REQUEST",
+          "future_extension": true
+        }
+      ]
+    },
+    "s3": {
+      "bucket": "drawio-kato-artifacts",
+      "prefixes": [
+        "tasks/",
+        "outputs/",
+        "prompts/",
+        "logs/"
+      ]
+    }
+  },
+  "workflow": [
+    {
+      "from": "API Gateway",
+      "to": "Lambda",
+      "label": "POST /tasks (query)"
+    },
+    {
+      "from": "Lambda",
+      "to": "Step Functions",
+      "label": "StartExecution"
+    },
+    {
+      "from": "Step Functions",
+      "to": "Bedrock Embeddings",
+      "label": "GenerateEmbedding"
+    },
+    {
+      "from": "Bedrock Embeddings",
+      "to": "DynamoDB",
+      "label": "Query (vector similarity)"
+    },
+    {
+      "from": "DynamoDB",
+      "to": "Step Functions",
+      "label": "Retrieved documents"
+    },
+    {
+      "from": "Step Functions",
+      "to": "Bedrock Claude",
+      "label": "InvokeBedrockModel (context + query)"
+    },
+    {
+      "from": "Bedrock Claude",
+      "to": "S3",
+      "label": "SaveResults"
+    },
+    {
+      "from": "S3",
+      "to": "DynamoDB",
+      "label": "UpdateMetadata"
+    }
+  ],
+  "storage": {
+    "s3_outputs": [
+      "design.md",
+      "architecture.drawio",
+      "artifact.json"
+    ],
+    "s3_structure": {
+      "tasks": "タスク定義ファイル",
+      "outputs": "処理結果ファイル",
+      "prompts": "プロンプトテンプレート",
+      "logs": "処理ログ"
+    },
+    "artifact_bucket": "drawio-kato-artifacts",
+    "output_prefix": "outputs/06bd31a2-e90d-4cb1-946f-ae3778df01bf/",
+    "task_prefix": "tasks/06bd31a2-e90d-4cb1-946f-ae3778df01bf/"
+  },
+  "dynamodb": {
+    "ai_agent_tasks": {
+      "partition_key": {
+        "name": "task_id",
+        "type": "String"
+      },
+      "sort_key": {
+        "name": "created_at",
+        "type": "Number"
+      },
+      "attributes": [
+        {
+          "name": "query",
+          "type": "String",
+          "description": "ユーザークエリテキスト"
+        },
+        {
+          "name": "query_embedding",
+          "type": "List",
+          "description": "クエリのベクトル表現"
+        },
+        {
+          "name": "status",
+          "type": "String",
+          "enum": [
+            "pending",
+            "processing",
+            "completed",
+            "failed"
+          ]
+        },
+        {
+          "name": "retrieved_docs",
+          "type": "List",
+          "description": "検索結果ドキュメントID配列"
+        },
+        {
+          "name": "response",
+          "type": "String",
+          "description": "生成された回答テキスト"
+        },
+        {
+          "name": "s3_output_path",
+          "type": "String",
+          "description": "S3保存パス"
+        },
+        {
+          "name": "execution_time_ms",
+          "type": "Number",
+          "description": "処理時間（ミリ秒）"
+        },
+        {
+          "name": "error_message",
+          "type": "String",
+          "description": "エラー時のメッセージ"
+        },
+        {
+          "name": "updated_at",
+          "type": "Number",
+          "description": "更新タイムスタンプ"
+        }
+      ]
+    },
+    "rag_documents": {
+      "partition_key": {
+        "name": "doc_id",
+        "type": "String"
+      },
+      "sort_key": {
+        "name": "version",
+        "type": "Number"
+      },
+      "attributes": [
+        {
+          "name": "content",
+          "type": "String",
+          "description": "ドキュメント本文"
+        },
+        {
+          "name": "embedding",
+          "type": "List",
+          "description": "ドキュメントのベクトル表現"
+        },
+        {
+          "name": "metadata",
+          "type": "Map",
+          "description": "ドキュメントメタデータ"
+        },
+        {
+          "name": "created_at",
+          "type": "Number",
+          "description": "作成タイムスタンプ"
+        }
+      ],
+      "future_extension": true
+    }
+  },
+  "files": {
+    "terraform": [
+      "terraform/main.tf",
+      "terraform/lambda.tf",
+      "terraform/stepfunctions.tf",
+      "terraform/dynamodb.tf",
+      "terraform/s3.tf",
+      "terraform/variables.tf"
+    ],
+    "lambda": [
+      "lambda/task_processor.py"
+    ],
+    "stepfunctions": [
+      "stepfunctions/rag_workflow.json"
+    ],
+    "prompts": [
+      "prompts/system_prompt.txt",
+      "prompts/rag_context_template.txt"
+    ],
+    "docs": [
+      "docs/design.md",
+      "docs/architecture.drawio"
+    ]
+  },
+  "future_extensions": [
+    {
+      "name": "ドキュメント管理",
+      "description": "rag_documentsテーブルの実装とドキュメント登録API",
+      "priority": "high"
+    },
+    {
+      "name": "バッチ処理",
+      "description": "複数クエリの並列処理対応",
+      "priority": "medium"
+    },
+    {
+      "name": "キャッシング",
+      "description": "同一クエリの結果キャッシュ機構",
+      "priority": "medium"
+    },
+    {
+      "name": "複数Lambda分割",
+      "description": "埋め込み生成、検索、生成を個別Lambda化",
+      "priority": "low"
+    },
+    {
+      "name": "ベクトルDB統合",
+      "description": "DynamoDBからOpenSearchへの移行",
+      "priority": "low"
+    },
+    {
+      "name": "ファインチューニング",
+      "description": "カスタムモデルの学習",
+      "priority": "low"
+    }
+  ],
+  "schema_version": "2026-05-15.1"
+}

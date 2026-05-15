@@ -75,6 +75,7 @@ Bedrockモデルは低コストPoC向けに `global.anthropic.claude-haiku-4-5-2
 draw.io XMLはLambda側で `artifact.json` から生成する。
 ClaudeにはMarkdownと構造化JSONの生成を優先させる。
 AWSサービスの図形は draw.io 組み込みの AWS アイコンライブラリ `mxgraph.aws4.resourceIcon` を使用する。
+構成図では `Generated Artifacts` ノードとして Markdown、draw.io XML、JSON を明示し、Lambdaが整形してS3へ保存する流れを表す。
 
 ## デプロイ
 

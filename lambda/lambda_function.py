@@ -7,7 +7,7 @@ import urllib.parse
 import urllib.error
 import urllib.request
 from datetime import datetime, timezone
-from typing import Any, Dict
+from typing import Any, Dict, List
 from uuid import uuid4
 
 import boto3
@@ -114,7 +114,7 @@ def build_prompt(event: Dict[str, Any]) -> Dict[str, Any]:
 
 必須出力:
 1. markdown: 設計書Markdown
-2. drawio_xml: draw.io XML
+2. drawio_xml: 空文字でよい。Lambda側でartifact_jsonから生成する
 3. artifact_json: 構造化JSON
 
 制約:
@@ -130,8 +130,9 @@ def build_prompt(event: Dict[str, Any]) -> Dict[str, Any]:
 - GitHub保存しやすいファイル名を含める
 - JSONとしてパース可能な形式のみ返す。末尾まで必ず閉じる
 - Markdownコードブロックや説明文は付けない
-- drawio_xml は有効な mxfile XML とし、主要ノードと矢印を含める
+- drawio_xml は空文字でよい
 - artifact_json には system, services, workflow, storage, dynamodb, files, future_extensions を含める
+- artifact_json.workflow は from, to, label を持つ配列にする
 
 ユーザー依頼:
 {input_text}
@@ -210,8 +211,9 @@ def format_output(event: Dict[str, Any]) -> Dict[str, Any]:
     normalized = _normalize_output(output, bedrock_text)
     normalized["artifact_json"] = _enrich_artifact_json(normalized["artifact_json"], task_id)
     markdown = normalized["markdown"]
-    drawio_xml = normalized["drawio_xml"]
     artifact_json = normalized["artifact_json"]
+    drawio_xml = _build_drawio_xml_from_artifact(artifact_json)
+    normalized["drawio_xml"] = drawio_xml
 
     keys = {
         "markdown": f"outputs/{task_id}/design.md",
@@ -327,6 +329,141 @@ def _normalize_output(output: Dict[str, Any], raw_text: str) -> Dict[str, Any]:
     }
 
 
+def _build_drawio_xml_from_artifact(artifact_json: Dict[str, Any]) -> str:
+    nodes = _drawio_nodes(artifact_json)
+    edges = _drawio_edges(artifact_json, nodes)
+    title = _artifact_title(artifact_json)
+    cells = [
+        '<mxCell id="0"/>',
+        '<mxCell id="1" parent="0"/>',
+        (
+            '<mxCell id="title" value="'
+            f'{_xml_escape(title)}" style="text;html=1;fontSize=18;fontStyle=1;strokeColor=none;fillColor=none;" '
+            'vertex="1" parent="1">'
+            '<mxGeometry x="40" y="20" width="620" height="40" as="geometry"/></mxCell>'
+        ),
+    ]
+
+    for node in nodes:
+        cells.append(
+            '<mxCell '
+            f'id="{_xml_escape(node["id"])}" '
+            f'value="{_xml_escape(node["label"])}" '
+            f'style="{_xml_escape(node["style"])}" '
+            'vertex="1" parent="1">'
+            f'<mxGeometry x="{node["x"]}" y="{node["y"]}" width="{node["width"]}" height="{node["height"]}" as="geometry"/>'
+            '</mxCell>'
+        )
+
+    for index, edge in enumerate(edges, start=1):
+        cells.append(
+            '<mxCell '
+            f'id="edge-{index}" '
+            f'value="{_xml_escape(edge.get("label", ""))}" '
+            'style="endArrow=block;html=1;rounded=0;strokeWidth=2;fontSize=10;" '
+            'edge="1" parent="1" '
+            f'source="{_xml_escape(edge["from"])}" target="{_xml_escape(edge["to"])}">'
+            '<mxGeometry relative="1" as="geometry"/></mxCell>'
+        )
+
+    return (
+        '<?xml version="1.0" encoding="UTF-8"?>'
+        '<mxfile host="app.diagrams.net" version="24.7.17">'
+        '<diagram id="drawio-kato-architecture" name="drawio_kato">'
+        '<mxGraphModel dx="1200" dy="800" grid="1" gridSize="10" guides="1" tooltips="1" '
+        'connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1200" pageHeight="800" '
+        'math="0" shadow="0"><root>'
+        + "".join(cells)
+        + "</root></mxGraphModel></diagram></mxfile>"
+    )
+
+
+def _drawio_nodes(artifact_json: Dict[str, Any]) -> List[Dict[str, Any]]:
+    fixed_nodes = [
+        ("user", "User", 50, 160, 120, 60, "actor", ""),
+        ("api-gateway", "API Gateway\nPOST /tasks", 230, 150, 78, 78, "aws", "api_gateway"),
+        ("lambda", "Lambda\ndrawio-kato-task-processor", 420, 150, 78, 78, "aws", "lambda"),
+        ("step-functions", "Step Functions\ndrawio-kato-task-flow", 650, 150, 78, 78, "aws", "step_functions"),
+        ("bedrock", "Amazon Bedrock\nClaude", 890, 150, 78, 78, "ai", "bedrock"),
+        ("artifacts", "Generated Artifacts\nMarkdown / draw.io XML / JSON", 420, 340, 170, 70, "artifact", ""),
+        ("s3", "Amazon S3\ndrawio-kato-artifacts", 650, 340, 78, 78, "storage", "s3"),
+        ("dynamodb", "Amazon DynamoDB\nai_agent_tasks", 890, 340, 78, 78, "database", "dynamodb"),
+        ("github", "GitHub\nmanual commit/push", 420, 520, 140, 60, "external", ""),
+    ]
+    styles = {
+        "actor": "rounded=1;whiteSpace=wrap;html=1;fillColor=#F8CECC;strokeColor=#B85450;fontSize=12;fontStyle=1;",
+        "artifact": "rounded=1;whiteSpace=wrap;html=1;fillColor=#E8F5FF;strokeColor=#1BA1E2;fontSize=12;fontStyle=1;",
+        "external": "rounded=1;whiteSpace=wrap;html=1;fillColor=#F5F5F5;strokeColor=#666666;fontSize=12;fontStyle=1;",
+    }
+    aws_colors = {
+        "aws": "#ED7100",
+        "ai": "#01A88D",
+        "storage": "#7AA116",
+        "database": "#C925D1",
+    }
+    return [
+        {
+            "id": node_id,
+            "label": label,
+            "x": x,
+            "y": y,
+            "width": width,
+            "height": height,
+            "style": _aws_icon_style(icon_name, aws_colors.get(node_type, "#ED7100"))
+            if icon_name
+            else styles[node_type],
+        }
+        for node_id, label, x, y, width, height, node_type, icon_name in fixed_nodes
+    ]
+
+
+def _aws_icon_style(icon_name: str, fill_color: str) -> str:
+    return (
+        "sketch=0;"
+        "points=[[0,0,0],[0.25,0,0],[0.5,0,0],[0.75,0,0],[1,0,0],"
+        "[0,1,0],[0.25,1,0],[0.5,1,0],[0.75,1,0],[1,1,0],"
+        "[0,0.25,0],[0,0.5,0],[0,0.75,0],[1,0.25,0],[1,0.5,0],[1,0.75,0]];"
+        "outlineConnect=0;"
+        "fontColor=#232F3E;"
+        f"fillColor={fill_color};"
+        "strokeColor=#ffffff;"
+        "dashed=0;"
+        "verticalLabelPosition=bottom;"
+        "verticalAlign=top;"
+        "align=center;"
+        "html=1;"
+        "fontSize=12;"
+        "fontStyle=0;"
+        "aspect=fixed;"
+        "shape=mxgraph.aws4.resourceIcon;"
+        f"resIcon=mxgraph.aws4.{icon_name};"
+    )
+
+
+def _drawio_edges(artifact_json: Dict[str, Any], nodes: List[Dict[str, Any]]) -> List[Dict[str, str]]:
+    return [
+        {"from": "user", "to": "api-gateway", "label": "request"},
+        {"from": "api-gateway", "to": "lambda", "label": "proxy"},
+        {"from": "lambda", "to": "step-functions", "label": "start"},
+        {"from": "step-functions", "to": "bedrock", "label": "invoke"},
+        {"from": "bedrock", "to": "lambda", "label": "response"},
+        {"from": "lambda", "to": "artifacts", "label": "format"},
+        {"from": "artifacts", "to": "s3", "label": "save"},
+        {"from": "step-functions", "to": "dynamodb", "label": "status"},
+        {"from": "s3", "to": "github", "label": "manual"},
+    ]
+
+
+def _artifact_title(artifact_json: Dict[str, Any]) -> str:
+    title = artifact_json.get("title")
+    if isinstance(title, str) and title.strip():
+        return title.strip()
+    system = artifact_json.get("system", {})
+    if isinstance(system, dict) and system.get("project_name"):
+        return f'{system["project_name"]} AWS AI Agent Architecture'
+    return "drawio_kato AWS AI Agent Architecture"
+
+
 def _enrich_artifact_json(artifact_json: Any, task_id: str) -> Dict[str, Any]:
     if not isinstance(artifact_json, dict):
         artifact_json = {"value": artifact_json}
@@ -409,6 +546,7 @@ def _xml_escape(value: str) -> str:
         .replace('"', "&quot;")
         .replace("<", "&lt;")
         .replace(">", "&gt;")
+        .replace("\n", "&#xa;")
     )
 
 

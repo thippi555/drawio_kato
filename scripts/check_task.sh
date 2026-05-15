@@ -10,6 +10,10 @@ TASK_ID="$1"
 BUCKET="${2:-drawio-kato-artifacts}"
 TABLE="${3:-ai_agent_tasks}"
 REGION="${AWS_REGION:-ap-northeast-1}"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
+
+cd "${REPO_ROOT}"
 
 echo "Task: ${TASK_ID}"
 echo

@@ -223,6 +223,11 @@ tasks/{task_id}/bedrock_text.txt
 
 生成物は人間向けの見た目より、後続AIとIaCが再利用しやすい正確性を優先する。
 
+draw.io XMLはClaudeに直接生成させず、Lambdaが `artifact_json` から生成する。
+ClaudeはMarkdownと構造化JSONの生成を担当する。
+AWSサービスのノードは draw.io 組み込みの AWS アイコンライブラリ `mxgraph.aws4.resourceIcon` を使用する。
+構成図では `Generated Artifacts` ノードを置き、Markdown、draw.io XML、JSONをLambdaが整形してS3へ保存することを明示する。
+
 ### 8.1 固定情報
 
 以下の値は生成AIが推測で変更してはならない。
@@ -277,7 +282,13 @@ PoC成果物では、以下を実装済みとして扱わない。
 {
   "system": {},
   "services": [],
-  "workflow": [],
+  "workflow": [
+    {
+      "from": "User",
+      "to": "API Gateway",
+      "label": "task request"
+    }
+  ],
   "storage": {},
   "dynamodb": {},
   "files": [],

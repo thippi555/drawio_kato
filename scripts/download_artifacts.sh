@@ -9,6 +9,10 @@ fi
 TASK_ID="$1"
 BUCKET="${2:-drawio-kato-artifacts}"
 BASE_S3="s3://${BUCKET}/outputs/${TASK_ID}"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
+
+cd "${REPO_ROOT}"
 
 mkdir -p docs/generated architecture/generated samples
 

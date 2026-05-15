@@ -39,12 +39,17 @@ JSONのみを返す。トップレベルキーは `markdown`、`drawio_xml`、`a
 ```json
 {
   "markdown": "設計書Markdown本文",
-  "drawio_xml": "draw.ioで開けるmxfile XML",
+  "drawio_xml": "",
   "artifact_json": {
     "title": "string",
-    "nodes": [],
-    "edges": [],
-    "aws_services": [],
+    "system": {},
+    "services": [],
+    "workflow": [
+      {"from": "User", "to": "API Gateway", "label": "task request"}
+    ],
+    "storage": {},
+    "dynamodb": {},
+    "future_extensions": [],
     "files": []
   }
 }
@@ -52,8 +57,8 @@ JSONのみを返す。トップレベルキーは `markdown`、`drawio_xml`、`a
 
 ## 制約
 
-- `drawio_xml` は `mxfile` ルート要素を含める。
-- ノードIDとエッジIDは安定した英数字にする。
+- `drawio_xml` は空文字を返す。draw.io XMLはLambda側で `artifact_json` から生成する。
+- `artifact_json.workflow` は `from`、`to`、`label` を持つ配列にする。
 - AWSサービス名はTerraformやLambda生成に使いやすい正式名を優先する。
 - 人間向けの装飾より、AIが再生成しやすい構造を優先する。
 - Markdown、draw.io XML、JSONの3成果物を必ず対応させる。

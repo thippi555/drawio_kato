@@ -1,0 +1,302 @@
+{
+  "system": {
+    "project_name": "drawio_kato",
+    "repository": "https://github.com/thippi555/drawio_kato",
+    "aws_region": "ap-northeast-1",
+    "runtime": "python3.12",
+    "iac": "Terraform",
+    "deployment_model": "serverless",
+    "api_route": "POST /tasks",
+    "lambda_function": "drawio-kato-task-processor",
+    "state_machine": "drawio-kato-task-flow",
+    "bedrock_model_id": "global.anthropic.claude-haiku-4-5-20251001-v1:0"
+  },
+  "services": {
+    "api_gateway": {
+      "endpoint": "POST /tasks",
+      "description": "ユーザーリクエスト受け入れエンドポイント"
+    },
+    "lambda": {
+      "function_name": "drawio-kato-task-processor",
+      "runtime": "python3.12",
+      "timeout_seconds": 300,
+      "memory_mb": 512,
+      "responsibilities": [
+        "リクエスト検証",
+        "タスク情報のDynamoDB記録",
+        "Step Functions実行開始",
+        "レスポンス返却"
+      ]
+    },
+    "step_functions": {
+      "state_machine_name": "drawio-kato-task-flow",
+      "responsibilities": [
+        "タスク処理フロー制御",
+        "Bedrockへのプロンプト送信",
+        "出力ファイル生成と保存",
+        "エラーハンドリング"
+      ]
+    },
+    "bedrock": {
+      "model_id": "global.anthropic.claude-haiku-4-5-20251001-v1:0",
+      "model_name": "Claude Haiku",
+      "responsibilities": [
+        "設計ドキュメント生成",
+        "Drawio XML生成",
+        "構造化JSON生成"
+      ]
+    },
+    "s3": {
+      "bucket_name": "drawio-kato-artifacts",
+      "storage_prefixes": [
+        "tasks/",
+        "outputs/",
+        "prompts/",
+        "logs/"
+      ]
+    },
+    "dynamodb": {
+      "table_name": "ai_agent_tasks",
+      "billing_mode": "PAY_PER_REQUEST"
+    }
+  },
+  "workflow": [
+    {
+      "from": "User",
+      "to": "API Gateway",
+      "label": "POST /tasks (JSON request)"
+    },
+    {
+      "from": "API Gateway",
+      "to": "Lambda",
+      "label": "Invoke drawio-kato-task-processor"
+    },
+    {
+      "from": "Lambda",
+      "to": "DynamoDB",
+      "label": "Record task (status: pending)"
+    },
+    {
+      "from": "Lambda",
+      "to": "Step Functions",
+      "label": "Start execution"
+    },
+    {
+      "from": "Lambda",
+      "to": "User",
+      "label": "Return task_id"
+    },
+    {
+      "from": "Step Functions",
+      "to": "DynamoDB",
+      "label": "Update status to processing"
+    },
+    {
+      "from": "Step Functions",
+      "to": "S3",
+      "label": "Retrieve prompt templates"
+    },
+    {
+      "from": "Step Functions",
+      "to": "Bedrock",
+      "label": "Send design prompt"
+    },
+    {
+      "from": "Step Functions",
+      "to": "Bedrock",
+      "label": "Send drawio prompt"
+    },
+    {
+      "from": "Step Functions",
+      "to": "Bedrock",
+      "label": "Send artifact prompt"
+    },
+    {
+      "from": "Bedrock",
+      "to": "Step Functions",
+      "label": "Return generated content"
+    },
+    {
+      "from": "Step Functions",
+      "to": "S3",
+      "label": "Save design.md, architecture.drawio, artifact.json"
+    },
+    {
+      "from": "Step Functions",
+      "to": "DynamoDB",
+      "label": "Update status to completed"
+    },
+    {
+      "from": "Step Functions",
+      "to": "S3",
+      "label": "Save execution.log"
+    }
+  ],
+  "storage": {
+    "s3_bucket": "drawio-kato-artifacts",
+    "structure": {
+      "tasks": {
+        "path": "tasks/{task_id}/",
+        "contents": [
+          "request.json"
+        ]
+      },
+      "outputs": {
+        "path": "outputs/{task_id}/",
+        "contents": [
+          "design.md",
+          "architecture.drawio",
+          "artifact.json"
+        ]
+      },
+      "prompts": {
+        "path": "prompts/",
+        "contents": [
+          "design_prompt.txt",
+          "drawio_prompt.txt",
+          "artifact_prompt.txt"
+        ]
+      },
+      "logs": {
+        "path": "logs/{task_id}/",
+        "contents": [
+          "execution.log"
+        ]
+      }
+    },
+    "artifact_bucket": "drawio-kato-artifacts",
+    "output_prefix": "outputs/cdb3227b-3617-4b9a-a651-5796e85ab3ef/",
+    "task_prefix": "tasks/cdb3227b-3617-4b9a-a651-5796e85ab3ef/"
+  },
+  "dynamodb": {
+    "table_name": "ai_agent_tasks",
+    "partition_key": {
+      "attribute_name": "task_id",
+      "attribute_type": "S"
+    },
+    "attributes": [
+      {
+        "name": "task_id",
+        "type": "S",
+        "description": "タスク一意識別子"
+      },
+      {
+        "name": "user_id",
+        "type": "S",
+        "description": "ユーザー識別子"
+      },
+      {
+        "name": "request_content",
+        "type": "S",
+        "description": "ユーザーリクエスト内容"
+      },
+      {
+        "name": "status",
+        "type": "S",
+        "description": "タスク状態（pending, processing, completed, failed）"
+      },
+      {
+        "name": "created_at",
+        "type": "S",
+        "description": "作成日時（ISO 8601）"
+      },
+      {
+        "name": "updated_at",
+        "type": "S",
+        "description": "更新日時（ISO 8601）"
+      },
+      {
+        "name": "execution_arn",
+        "type": "S",
+        "description": "Step Functions実行ARN"
+      },
+      {
+        "name": "output_s3_path",
+        "type": "S",
+        "description": "S3出力パス"
+      },
+      {
+        "name": "error_message",
+        "type": "S",
+        "description": "エラーメッセージ（失敗時）"
+      }
+    ]
+  },
+  "files": {
+    "github_structure": {
+      "root": [
+        "README.md",
+        ".gitignore"
+      ],
+      "terraform": [
+        "main.tf",
+        "lambda.tf",
+        "stepfunctions.tf",
+        "dynamodb.tf",
+        "s3.tf",
+        "iam.tf",
+        "variables.tf",
+        "outputs.tf"
+      ],
+      "lambda": [
+        "task_processor.py",
+        "requirements.txt"
+      ],
+      "stepfunctions": [
+        "task_flow_definition.json"
+      ],
+      "prompts": [
+        "design_prompt.txt",
+        "drawio_prompt.txt",
+        "artifact_prompt.txt"
+      ],
+      "docs": [
+        "ARCHITECTURE.md",
+        "DEPLOYMENT.md",
+        "API.md"
+      ]
+    },
+    "output_files": {
+      "design_md": "design.md",
+      "architecture_drawio": "architecture.drawio",
+      "artifact_json": "artifact.json"
+    }
+  },
+  "future_extensions": [
+    {
+      "name": "Lambda関数の分割",
+      "description": "複数Lambda関数への分割による関心の分離",
+      "components": [
+        "Lambda 1: リクエスト処理・検証",
+        "Lambda 2: Bedrock呼び出し・プロンプト管理",
+        "Lambda 3: ファイル生成・S3保存",
+        "Lambda 4: 非同期通知・メール送信"
+      ]
+    },
+    {
+      "name": "非同期通知",
+      "description": "タスク完了時の通知機能",
+      "components": [
+        "Amazon SNS",
+        "Amazon SQS"
+      ]
+    },
+    {
+      "name": "生成履歴管理",
+      "description": "ユーザーの生成履歴を管理・検索",
+      "components": [
+        "DynamoDB GSI",
+        "ElasticSearch"
+      ]
+    },
+    {
+      "name": "テンプレートライブラリ",
+      "description": "再利用可能なプロンプトテンプレート管理",
+      "components": [
+        "S3",
+        "DynamoDB"
+      ]
+    }
+  ],
+  "schema_version": "2026-05-15.1"
+}
