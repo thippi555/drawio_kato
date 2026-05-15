@@ -60,6 +60,26 @@ variable "lambda_zip_path" {
   default = "../lambda/dist/lambda_function.zip"
 }
 
+variable "tasks_retention_days" {
+  type    = number
+  default = 30
+}
+
+variable "logs_retention_days" {
+  type    = number
+  default = 30
+}
+
+variable "outputs_retention_days" {
+  type    = number
+  default = 90
+}
+
+variable "prompts_retention_days" {
+  type    = number
+  default = 90
+}
+
 resource "aws_s3_bucket" "artifacts" {
   bucket = var.artifact_bucket_name
 }
@@ -78,6 +98,62 @@ resource "aws_s3_bucket_server_side_encryption_configuration" "artifacts" {
   rule {
     apply_server_side_encryption_by_default {
       sse_algorithm = "AES256"
+    }
+  }
+}
+
+resource "aws_s3_bucket_lifecycle_configuration" "artifacts" {
+  bucket = aws_s3_bucket.artifacts.id
+
+  rule {
+    id     = "expire-tasks"
+    status = "Enabled"
+
+    filter {
+      prefix = "tasks/"
+    }
+
+    expiration {
+      days = var.tasks_retention_days
+    }
+  }
+
+  rule {
+    id     = "expire-logs"
+    status = "Enabled"
+
+    filter {
+      prefix = "logs/"
+    }
+
+    expiration {
+      days = var.logs_retention_days
+    }
+  }
+
+  rule {
+    id     = "expire-outputs"
+    status = "Enabled"
+
+    filter {
+      prefix = "outputs/"
+    }
+
+    expiration {
+      days = var.outputs_retention_days
+    }
+  }
+
+  rule {
+    id     = "expire-prompts"
+    status = "Enabled"
+
+    filter {
+      prefix = "prompts/"
+    }
+
+    expiration {
+      days = var.prompts_retention_days
     }
   }
 }

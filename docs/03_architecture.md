@@ -145,6 +145,17 @@ s3://drawio-kato-artifacts/
  └── logs/
 ```
 
+ライフサイクル:
+
+```json
+{
+  "tasks": "30 days",
+  "logs": "30 days",
+  "outputs": "90 days",
+  "prompts": "90 days"
+}
+```
+
 ---
 
 ## 6. API

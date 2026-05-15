@@ -297,3 +297,23 @@ terraform destroy
 
 S3バケットにオブジェクトが残っていると削除に失敗する場合がある。
 必要な成果物を退避してから削除する。
+
+## コスト管理
+
+S3成果物にはライフサイクルを設定する。
+
+```text
+tasks/    30日で削除
+logs/     30日で削除
+outputs/  90日で削除
+prompts/  90日で削除
+```
+
+保持期間を変える場合は Terraform 変数を上書きする。
+
+```hcl
+tasks_retention_days   = 30
+logs_retention_days    = 30
+outputs_retention_days = 90
+prompts_retention_days = 90
+```
