@@ -103,6 +103,14 @@ artifact_bucket = "drawio-kato-artifacts"
 task_table = "ai_agent_tasks"
 ```
 
+簡易起動スクリプト:
+
+```bash
+./scripts/start_stack.sh
+```
+
+このスクリプトは Lambda ZIP 作成、`terraform init`、`terraform apply` を順に実行する。
+
 ## 実行手順
 
 APIへタスクを投入する。
@@ -325,6 +333,14 @@ terraform destroy
 
 S3バケットにオブジェクトが残っていると削除に失敗する場合がある。
 必要な成果物を退避してから削除する。
+
+簡易停止スクリプト:
+
+```bash
+./scripts/stop_stack.sh
+```
+
+このスクリプトは確認入力後、必要に応じてS3バケットを空にし、`terraform destroy` を実行する。
 
 ## コスト管理
 
