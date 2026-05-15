@@ -1,0 +1,84 @@
+{
+  "Comment": "AI agent PoC task flow for prompt building, Bedrock execution, artifact formatting, and optional GitHub write.",
+  "StartAt": "BuildPrompt",
+  "States": {
+    "BuildPrompt": {
+      "Type": "Task",
+      "Resource": "${lambda_function_arn}",
+      "Parameters": {
+        "action": "build_prompt",
+        "task_id.$": "$.task_id",
+        "input_text.$": "$.input_text"
+      },
+      "Retry": [
+        {
+          "ErrorEquals": ["Lambda.ServiceException", "Lambda.AWSLambdaException", "Lambda.SdkClientException"],
+          "IntervalSeconds": 2,
+          "MaxAttempts": 2,
+          "BackoffRate": 2
+        }
+      ],
+      "Catch": [{"ErrorEquals": ["States.ALL"], "ResultPath": "$.error", "Next": "MarkFailed"}],
+      "Next": "InvokeBedrock"
+    },
+    "InvokeBedrock": {
+      "Type": "Task",
+      "Resource": "${lambda_function_arn}",
+      "Parameters": {
+        "action": "invoke_bedrock",
+        "task_id.$": "$.task_id",
+        "input_text.$": "$.input_text",
+        "prompt.$": "$.prompt",
+        "prompt_s3_path.$": "$.prompt_s3_path"
+      },
+      "Retry": [
+        {
+          "ErrorEquals": ["Bedrock.ThrottlingException", "Lambda.ServiceException", "Lambda.AWSLambdaException", "Lambda.SdkClientException"],
+          "IntervalSeconds": 3,
+          "MaxAttempts": 2,
+          "BackoffRate": 2
+        }
+      ],
+      "Catch": [{"ErrorEquals": ["States.ALL"], "ResultPath": "$.error", "Next": "MarkFailed"}],
+      "Next": "FormatOutput"
+    },
+    "FormatOutput": {
+      "Type": "Task",
+      "Resource": "${lambda_function_arn}",
+      "Parameters": {
+        "action": "format_output",
+        "task_id.$": "$.task_id",
+        "input_text.$": "$.input_text",
+        "prompt.$": "$.prompt",
+        "prompt_s3_path.$": "$.prompt_s3_path",
+        "bedrock_text.$": "$.bedrock_text",
+        "bedrock_raw_s3_path.$": "$.bedrock_raw_s3_path"
+      },
+      "Catch": [{"ErrorEquals": ["States.ALL"], "ResultPath": "$.error", "Next": "MarkFailed"}],
+      "Next": "WriteGitHub"
+    },
+    "WriteGitHub": {
+      "Type": "Task",
+      "Resource": "${lambda_function_arn}",
+      "Parameters": {
+        "action": "write_github",
+        "task_id.$": "$.task_id",
+        "input_text.$": "$.input_text",
+        "output_s3_path.$": "$.output_s3_path",
+        "github_files.$": "$.github_files"
+      },
+      "Catch": [{"ErrorEquals": ["States.ALL"], "ResultPath": "$.error", "Next": "MarkFailed"}],
+      "End": true
+    },
+    "MarkFailed": {
+      "Type": "Task",
+      "Resource": "${lambda_function_arn}",
+      "Parameters": {
+        "action": "mark_failed",
+        "task_id.$": "$.task_id",
+        "error.$": "$"
+      },
+      "End": true
+    }
+  }
+}
